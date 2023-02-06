@@ -14,49 +14,79 @@ fi
 
 # Utilities
 # ---------------------------------------------------------------
-colorOutput() {
+
+# Print a message to stdout
+# Usage: prntc <color> <message>
+# Example: prntc "red" "This is a red message"
+prntc() {
     local color="$1"
-    local content="$2"
+    local content="${2:-}"
 
     # Color mappings
     local default="\033[0m"
     local red="\033[31m"
     local green="\033[0;32m"
     local yellow="\033[0;33m"
-    local cyan="\033[0;35m"
-    local magenta="\033[0;36m"
+    local magenta="\033[0;35m"
+    local cyan="\033[0;36m"
 
+    if [[ -z "${!color-}" ]]; then
+        content="$color"
+        color="default"
+    fi
 
     printf "${!color}$content$default"
 }
 
-printDefault () {
-    colorOutput "default" "$1\r\n"
+# Print a message to stdout with a newline
+# Usage: prntcn <color> <message>
+# Example: prntcn "red" "This is a red message"
+prntcn() {
+    local color="$1"
+    local content="${2:-}"
+
+    printf "$(prntc "$color" "$content") \r\n"
 }
 
-printInfo() {
-    colorOutput "cyan" "$1\r\n"
+# Print a message to stdout with a newline
+# Usage: prntTitle <message>
+# Example: prntTitle "This is a title"
+prntTitle () {
+    prntDivider
+    prntcn "$1"
+    prntDivider
 }
 
-printCaution() {
-    colorOutput "yellow" "$1\r\n"
-}
-
-printSuccess() {
-    colorOutput "green" "$1\r\n"
-}
-
-printError() {
-    colorOutput "red" "$1\r\n" >&2
-}
-
-printSection () {
+# Print a divider
+# Usage: prntDivider <message>
+# Example: prntDivider "This is a divider"
+# Example: prntDivider
+prntDivider () {
     local divider;
-    divider="------------------------------------------------------------"
+    local content="${1:-}"
+    divider=$(printf -- '-%.0s' {1..60})
 
-    printInfo $divider
-    printDefault "$1"
-    printInfo $divider 
+    # if content is empty then just print the divider
+    if [[ -z "$content" ]]; then
+        prntcn "cyan" "$divider"
+        return
+    fi
+
+    local contentLength=${#content}
+    local dividerLength=${#divider}
+    
+    if [[ "$contentLength" -gt "$dividerLength" ]]; then
+        prntcn "red" "Content is longer than the divider"
+        exit 1
+    fi
+
+    content="-- $content "
+
+    local diff=$((dividerLength - ${#content}))
+
+    printf "\r\n"
+    prntc "cyan" "$content"
+    prntcn "cyan" "${divider:0:$diff}"
 }
 
 # Prompt the user to confirm
@@ -75,9 +105,9 @@ confirm() {
     local confirmPrompt="${3:-"y/N"}"
     local confirmMatcher="${4:-"(y)"}"
 
-    question+=" [$confirmPrompt] "
+    question+=$(prntc "cyan" " [$confirmPrompt] ")
 
-    colorOutput "magenta" "$question " 
+    prntc "magenta" "$question "
 
     # read response
     response=$(read -e line; echo "$line")
@@ -109,7 +139,7 @@ spinner () {
     trap shutdown EXIT
 
     function cursorBack() {
-        echo -en "\033[$1D"
+        printf "\r"; printf ' %0.s' {0..20}
     }
 
     function spin() {
@@ -120,19 +150,22 @@ spinner () {
         local charwidth=3
         local i=0
         local label="$1"
+        local length=(${#label} + $charwidth + 1)
 
         tput civis # cursor invisible
         while kill -0 $pid 2>/dev/null; do
             local i=$(((i + $charwidth) % ${#spin}))
-            colorOutput "cyan" "${spin:$i:$charwidth} $label"
+            prntc "cyan" "${spin:$i:$charwidth} $label"
+            printf "\r";
+            printf '%0.s' {0..$length}
 
-
-            cursorBack $((${#label} + 2))
             sleep .1
         done
 
         tput cnorm
         wait $pid
+
+        prntcn "cyan" "✓ $label"
 
         return $?
     }
@@ -148,26 +181,53 @@ spinner () {
 # This method is referenced in the trap above
 cleanup () {
     trap - SIGINT SIGTERM ERR EXIT
-    printf "\r\n"
-    printSuccess "Party cleanup complete!"
+    printf "\r\n" # ensure we have a new line if an error occured
+
+    prntDivider "Cleanup"
+    prntcn "green" "Done!"
+}
+
+# Parse the command line arguments
+# Usage: parseArgs "$@"
+# Example: parseArgs "$@"
+parseArgs() {
+    while getopts i:o: flag; do
+        case "${flag}" in
+            i) 
+                input="${OPTARG}"
+                ;;
+            o) 
+                output="${OPTARG}"
+                ;;
+        esac
+    done
 }
 
 # Main function that is called when the script executes
 main() {
-    trap cleanup EXIT
+    prntTitle "Party Time 🎉"
 
-    printSection "Party Time 🎉"
+    parseArgs "$@"
+    prntDivider "Args"
+    prntc "magenta" "Input Arg: "
+    prntcn "cyan" "${input:-"No input provided"}"
+    prntc "magenta" "Output Arg: "
+    prntcn "cyan" "${output-"No input provided"}"
+
+    prntDivider "Party pre-game"
 
     local confirmation
     confirm confirmation "Are you ready to party?" "yes/NO" "(yes)"
 
     if ! $confirmation; then
-        printError "Party cancelled 😢"
+        prntcn "red" "Party cancelled 😢"
         exit 1
     fi
 
     spinner "Getting the party ready" sleep 2
-    printSuccess "LEEEEEEETS GOOOOOOOOOO 🥳"
+    prntcn "green" "LEEEEEEETS GOOOOOOOOOO 🥳"
+
+    cleanup
 }
 
 main "$@"
